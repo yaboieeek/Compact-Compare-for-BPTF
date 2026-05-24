@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Compact Compare for bptf
 // @namespace    eeek
-// @version      1.0.0
+// @version      1.0.1
 // @description  Makes compares easier to view
-// @author       You
+// @author       eeek
 // @match        https://backpack.tf/profiles/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=backpack.tf
 // @updateURL    https://github.com/yaboieeek/Compact-Compare-for-BPTF/raw/main/compact-compare.user.js
