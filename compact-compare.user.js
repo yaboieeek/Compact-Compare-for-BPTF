@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Compact Compare for bptf
 // @namespace    eeek
-// @version      1.0.1
+// @version      1.1.0
 // @description  Makes compares easier to view
 // @author       eeek
 // @match        https://backpack.tf/profiles/*
@@ -98,6 +98,7 @@ class BinUIController {
         }
     }
 
+
     addCompactView() {
         if (this.$mainTile.previousElementSibling?.classList.contains('additional-tile')) {
             return;
@@ -118,13 +119,14 @@ class BinUIController {
         $item.className = `item q-440-${sameItem[1].quality} q-440-border-${sameItem[1].quality} compact-item`;
         const $amount = document.createElement('span');
         $amount.className = 'compact-amount';
-        $amount.innerText = 'x' + sameItem[1].amount;
+        $amount.innerText = sameItem[1].amount;
 
-        $item.innerHTML = sameItem[1].$itemIcon;
+        $item.innerHTML= sameItem[1].$itemIcon;
         $item.append($amount);
 
         this.$additionalTile.append($item);
     }
+
 
     hideMain() {
         this.$mainTile.style.display = 'none';
@@ -167,28 +169,30 @@ function observeModal(onAppear, onChange, onDisappear) {
             onAppear?.(modalElement);
 
             contentObserver = new MutationObserver((mutations) => {
-                let isOurChange = false;
+                const isOurChange = mutations.some(mutation => {
 
-                for (const mutation of mutations) {
-                    for (const node of mutation.addedNodes) {
-                        if (node.classList?.contains('additional-tile') ||
-                            node.classList?.contains('item') && node.closest('.additional-tile') ||
-                            node.classList?.contains('popover')
-                           ) {
-                            isOurChange = true;
-                            break;
-                        }
+                    const isPopover = (node) => node.classList?.contains('popover') || node.closest('[id^="popover"]') || mutation.target?.id.includes('popover');
+                    const isAdditionalTile = (node) => mutation.target?.classList?.contains('additional-tile') || node.classList?.contains('additional-tile') || (node.classList?.contains('item') && node.closest('.additional-tile'));
+
+
+                    if (isAdditionalTile(mutation.target)) {
+                        return true;
                     }
 
-                    for (const node of mutation.removedNodes) {
-                        if (node.classList?.contains('popover')) {
-                            isOurChange = true;
-                            break;
-                        }
+                    if (mutation.addedNodes.length) {
+                        return Array.from(mutation.addedNodes)
+                            .some(node => isAdditionalTile(node) || isPopover(node));
                     }
-                }
+
+                    if (mutation.removedNodes.length) {
+                        return Array.from(mutation.removedNodes).some(isPopover)
+                    }
+
+                    return false;
+                });
 
                 if (!isOurChange) {
+                    console.log(mutations)
                     onChange?.(modalElement);
                 }
             });
@@ -288,17 +292,24 @@ GM_addStyle(`
         position: relative;
     }
 
+    .compact-item:hover .compact-amount {
+        opacity: 0.1;
+        background-color: #ff4444;
+    }
     .compact-amount {
         position: absolute;
-        top: 0;
-        right: 0;
-        color: white;
-        background: #33333355;
-        font-size: 20px;
+        top: 4px;
+        left: 4px;
+        padding: 1px 3px;
+        color: #FFFFFF;
+        background-color: cornflowerblue;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: default;
         font-weight: bold;
-        border-radius: 3px;
-        z-index: 5;
     }
+
+
 `)
 
 
@@ -308,9 +319,10 @@ GM_addStyle(
         display: flex;
         flex-direction: row;
         flex-wrap: wrap;
-        padding: 12px 24px;
         background: linear-gradient(-30deg in oklch, rgba(0, 0, 0, 0) 0%, rgba(43,60,72, .3) 100%);
         cursor: pointer;
+        margin: 0;
+        padding: 0;
     }
 
     .additional-tile h6 {
@@ -323,6 +335,8 @@ GM_addStyle(
         border-radius: 5px;
         padding: 12px 0;
     }
+
+
 `
 )
 
