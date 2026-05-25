@@ -1,14 +1,15 @@
 // ==UserScript==
 // @name         Compact Compare for bptf
 // @namespace    eeek
-// @version      1.2.0
+// @version      1.3.0
 // @description  Makes compares easier to view
 // @author       eeek
-// @match        https://backpack.tf/profiles/*
+// @match        https://backpack.tf/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=backpack.tf
 // @updateURL    https://github.com/yaboieeek/Compact-Compare-for-BPTF/raw/main/compact-compare.user.js
 // @downloadURL  https://github.com/yaboieeek/Compact-Compare-for-BPTF/raw/main/compact-compare.user.js
 // @grant        GM_addStyle
+// @connect backpack.tf
 // ==/UserScript==
 
 
@@ -23,7 +24,7 @@ const SELECTORS = {
     COMPARE_BIN: '.item-list',
 }
 
-const SAME_PROPERTIES = ['defindex', 'name', 'quality', 'spell_1', 'effect_name', 'spell_2', 'ks_tier'] // array of properties that are required for items to match to consider those items similar
+const SAME_PROPERTIES = ['defindex', 'name', 'quality', 'spell_1', 'effect_name', 'spell_2', 'ks_tier', 'quality_elevated'] // array of properties that are required for items to match to consider those items similar
 
 class ItemsController {
     constructor() {
@@ -39,7 +40,6 @@ class ItemsController {
         this.items.forEach((item) => {
             const groupKey = this.getGroupKey(item);
 
-            console.log(groupKey)
             if (this.sameItems.has(groupKey)) {
                 const existing = this.sameItems.get(groupKey);
                 existing.amount++;
@@ -98,7 +98,6 @@ class BinUIController {
         this.$additionalTile = document.createElement('ul');
 
         if (START_MINIMIZED) {
-            console.log('---------------MINIMIZING A TILE-------------')
             this.hideMain();
         }
     }
@@ -121,7 +120,7 @@ class BinUIController {
     addItemToCompactView(sameItem) {
         const $item = document.createElement('li');
 
-        $item.className = `item q-440-${sameItem[1].quality} q-440-border-${sameItem[1].quality} compact-item`;
+        $item.className = `item q-440-${sameItem[1].quality} q-440-border-${sameItem[1].quality_elevated || sameItem[1].quality} compact-item`;
         const $amount = document.createElement('span');
         $amount.className = 'compact-amount';
         $amount.innerText = sameItem[1].amount;
@@ -146,8 +145,42 @@ class BinUIController {
         }
 
         this.$additionalTile.append($item);
+
+        $item.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (e.ctrlKey) {
+                window.open('https://backpack.tf/item/' + sameItem[1].original_id);
+                return;
+            }
+
+                window.open(this.constructItemLink(sameItem[1]))
+        })
     }
 
+    constructItemLink(item) {
+        let base = `https://backpack.tf/stats/BLANK/EMPTY/1/${item.craftable}/`
+        if (item.effect_id) base+= item.effect_id + '/';
+
+        if (item.quality_elevated) {
+            base = base.replace('BLANK', (item.quality_elevated && item.quality === '5')? 'Strange Unusual' : item.quality)
+
+        } else {
+            base = base.replace('BLANK', item.quality)
+        };
+
+        const aussieName = item.australium ? 'Australium ' + item.name : item.name;
+        switch(item.ks_tier) {
+            case '1': base = base.replace('EMPTY', 'Killstreak ' + aussieName); break;
+            case '2': base = base.replace('EMPTY', 'Specialized Killstreak ' + aussieName); break;
+            case '3': base = base.replace('EMPTY', 'Professional Killstreak ' + aussieName); break;
+            default: base = base.replace('EMPTY', aussieName); break;
+        }
+
+
+        return base
+    }
 
     hideMain() {
         this.$mainTile.style.display = 'none';
@@ -192,7 +225,7 @@ function observeModal(onAppear, onChange, onDisappear) {
             contentObserver = new MutationObserver((mutations) => {
                 const isOurChange = mutations.some(mutation => {
 
-                    const isPopover = (node) => node.classList?.contains('popover') || node.closest('[id^="popover"]') || mutation.target?.id.includes('popover');
+                    const isPopover = (node) => node.classList?.contains('popover') || node?.closest('[id^="popover"]') || mutation.target?.id.includes('popover');
                     const isAdditionalTile = (node) => mutation.target?.classList?.contains('additional-tile') || node.classList?.contains('additional-tile') || (node.classList?.contains('item') && node.closest('.additional-tile'));
 
 
@@ -213,7 +246,6 @@ function observeModal(onAppear, onChange, onDisappear) {
                 });
 
                 if (!isOurChange) {
-                    console.log(mutations)
                     onChange?.(modalElement);
                 }
             });
@@ -276,7 +308,6 @@ function processExistingBins() {
         $bins.push($bin)
     })
 
-    console.log($bins)
 
     for (const $bin of $bins) {
         const oldTile = $bin.previousElementSibling;
@@ -294,10 +325,8 @@ function processExistingBins() {
 function revertCompactView() {
     document.querySelectorAll('.additional-tile').forEach(tile => tile.remove());
 
-    document.querySelectorAll(SELECTORS.COMPARE_BIN).forEach(bin => {
-        if (bin.style.display === 'none') {
+    document.querySelectorAll(`.inventory-cmp-bin, ${SELECTORS.COMPARE_BIN}`).forEach(bin => {
             bin.style.display = '';
-        }
     });
 }
 
@@ -354,24 +383,186 @@ function initControls() {
     filtersPanel.addEventListener('input', handleInputChange);
     filtersPanel.addEventListener('change', handleInputChange);
 }
-const app = () => {
-    const stopObserving = observeModal(
-        async (modal) => {
-            console.log('Modal is open', modal);
-            initControls();
-            processExistingBins();
 
-        },
-        async (modal) => {
-            console.log('Content changed', modal);
-            initControls();
-            processExistingBins();
+const initTooltipUpdates = () => {
 
-        },
-        () => {
-            console.log('Modal closed');
+    function getCompareURL(steamid, date) {
+        if (!steamid || !date) return null;
+
+        const d = new Date(date.getTime());
+        d.setUTCHours(0, 0, 0, 0);
+        const timestamp = Math.round(d.getTime() / 1000);
+
+        return `https://backpack.tf/profiles/${steamid}#!/compare/${timestamp}/${timestamp}/nearest`;
+    }
+
+    function extractCompareLinks(html) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        const historyTable = doc.querySelector('.history-sheet table.table');
+        if (!historyTable) return null;
+
+        const rows = historyTable.querySelectorAll('tbody > tr');
+        if (rows.length < 2) return null;
+
+        const headers = historyTable.querySelectorAll('thead tr th');
+        const headerMap = {};
+        headers.forEach((th, idx) => {
+            headerMap[th.textContent.trim()] = idx;
+        });
+
+        if (!headerMap['Last seen'] || !headerMap['User']) return null;
+
+        const getValueFromURL = (url, pattern) => {
+            const match = (url || '').match(pattern);
+            return match ? match[1] : null;
+        };
+
+        const rowData = [];
+
+        for (let i = 0; i < Math.min(2, rows.length); i++) {
+            const row = rows[i];
+            const cells = row.querySelectorAll('td');
+
+            const lastSeenLink = cells[headerMap['Last seen']]?.querySelector('a');
+            if (!lastSeenLink) continue;
+
+            const timestampStr = getValueFromURL(lastSeenLink.href, /time=(\d+)$/);
+            if (!timestampStr) continue;
+
+            const lastSeenDate = new Date(parseInt(timestampStr) * 1000);
+
+            const userLink = cells[headerMap['User']]?.querySelector('.user-handle a');
+            if (!userLink) continue;
+
+            const steamId = userLink.getAttribute('data-id');
+            if (!steamId) continue;
+
+            rowData.push({ steamId, lastSeenDate });
         }
-    );
+
+        if (rowData.length < 2) return null;
+
+        const [prevRow, currentRow] = rowData;
+
+        return {
+            sellerCompare: getCompareURL(currentRow.steamId, currentRow.lastSeenDate),
+            buyerCompare: getCompareURL(prevRow.steamId, currentRow.lastSeenDate)
+        };
+    }
+    function fetchItemCompareLinks(itemid, callback) {
+        if (!itemid) {
+            console.error('itemid is required');
+            if (typeof callback === 'function') callback(null);
+            else callback.onError?.(new Error('itemid is required'));
+            return;
+        }
+
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: `https://backpack.tf/item/${itemid}`,
+            headers: {
+                'User-Agent': 'skibidi toilet 228'
+            },
+            onload: (response) => {
+                if (response.status === 200) {
+                    try {
+                        const links = extractCompareLinks(response.responseText);
+                        if (typeof callback === 'function') {
+                            callback(links);
+                        } else {
+                            callback.onSuccess?.(links);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing item page:', e);
+                        if (typeof callback === 'function') callback(null);
+                        else callback.onError?.(e);
+                    }
+                } else {
+                    console.error(`HTTP ${response.status} fetching item ${itemid}`);
+                    if (typeof callback === 'function') callback(null);
+                    else callback.onError?.(new Error(`HTTP ${response.status}`));
+                }
+            },
+            onerror: (err) => {
+                console.error('Network error fetching item page:', err);
+                if (typeof callback === 'function') callback(null);
+                else callback.onError?.(err);
+            }
+        });
+    }
+
+    async function handleTooltip(node) {
+        const c = node.querySelector('#popover-search-links');
+        if (!c) return;
+
+        const dds = [...node.querySelectorAll('dd.popover-btns')];
+        if (dds.length === 0) return;
+
+        const ourDD = document.createElement('dd');
+        ourDD.className = 'popover-btns';
+        dds[0].before(ourDD);
+
+        if (c.querySelector('.compare-seller-button, .compare-buyer-button')) return;
+
+        const types = ['seller', 'buyer'];
+        const itemID = node.querySelector('#popover-additional-links a[href*="item/"]').href;
+        const createTypeButton = (type) => {
+            const button = document.createElement('a');
+            button.className = `btn btn-default btn-xs compare-${type}-button`;
+            button.target = '_blank';
+            button.rel = 'noopener noreferrer';
+
+            const arrowDir = type === 'buyer' ? 'left' : 'right';
+            button.innerHTML = `<i class="fa fa-arrow-${arrowDir}"></i> Open ${type} compare`;
+
+            const linkKey = `${type}Compare`;
+            if (compareLinks?.[linkKey]) {
+                button.href = compareLinks[linkKey];
+                button.title = `Compare inventory at time of sale`;
+            } else {
+                button.href = '#';
+                button.style.pointerEvents = 'none';
+                button.style.opacity = '0.5';
+                button.title = 'Compare link not available';
+            }
+
+            button.addEventListener('click', (e) => {
+                if (!compareLinks?.[linkKey]) {
+                    e.preventDefault();
+                }
+            });
+
+            return button;
+        };
+
+        types.map(createTypeButton).forEach(btn => ourDD.appendChild(btn));
+    }
+}
+
+const app = () => {
+
+    initTooltipUpdates();
+    if (window.location.href.includes('profiles') ||
+        window.location.href.includes('id')
+       ) {
+        const stopObserving = observeModal(
+            async (modal) => {
+                initControls();
+                processExistingBins();
+
+            },
+            async (modal) => {
+                initControls();
+                processExistingBins();
+
+            },
+            () => {
+                console.log('Modal closed');
+            }
+        );
+    }
 }
 
 app();
