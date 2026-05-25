@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Compact Compare for bptf
 // @namespace    eeek
-// @version      1.1.0
+// @version      1.2.0
 // @description  Makes compares easier to view
 // @author       eeek
 // @match        https://backpack.tf/profiles/*
@@ -14,12 +14,16 @@
 
 const START_MINIMIZED = true;
 
+let scriptEnabled = true;
+let toggleButton = null;
+
+
 const SELECTORS = {
     COMPARE_BINS: '#inventory-cmp-bins',
     COMPARE_BIN: '.item-list',
 }
 
-const SAME_PROPERTIES = ['defindex', 'name', 'quality', 'spell_1', 'effect_name'] // array of properties that are required for items to match to consider those items similar
+const SAME_PROPERTIES = ['defindex', 'name', 'quality', 'spell_1', 'effect_name', 'spell_2', 'ks_tier'] // array of properties that are required for items to match to consider those items similar
 
 class ItemsController {
     constructor() {
@@ -35,6 +39,7 @@ class ItemsController {
         this.items.forEach((item) => {
             const groupKey = this.getGroupKey(item);
 
+            console.log(groupKey)
             if (this.sameItems.has(groupKey)) {
                 const existing = this.sameItems.get(groupKey);
                 existing.amount++;
@@ -121,8 +126,24 @@ class BinUIController {
         $amount.className = 'compact-amount';
         $amount.innerText = sameItem[1].amount;
 
+        const $addC = document.createElement('div');
+        $addC.className = 'additional-tags';
+
+
         $item.innerHTML= sameItem[1].$itemIcon;
         $item.append($amount);
+        $item.append($addC);
+
+        if (sameItem[1].spell_1) {
+            const $flaskIcon = document.createElement('i');
+            $flaskIcon.className = 'fa fa-flask';
+            $addC.append($flaskIcon);
+        }
+        if (sameItem[1].spell_2) {
+            const $flaskIcon = document.createElement('i');
+            $flaskIcon.className = 'fa fa-flask';
+            $addC.append($flaskIcon);
+        }
 
         this.$additionalTile.append($item);
     }
@@ -228,6 +249,8 @@ function observeModal(onAppear, onChange, onDisappear) {
             childList: true,
             subtree: true,
         });
+        initControls();
+        processExistingBins();
     }
 
     return () => {
@@ -237,6 +260,7 @@ function observeModal(onAppear, onChange, onDisappear) {
 }
 
 function processExistingBins() {
+    if (!scriptEnabled) return;
     const binsParent = document.querySelector(SELECTORS.COMPARE_BINS);
     const $bins = [...binsParent.querySelectorAll(SELECTORS.COMPARE_BIN)];
 
@@ -267,15 +291,80 @@ function processExistingBins() {
     }
 }
 
+function revertCompactView() {
+    document.querySelectorAll('.additional-tile').forEach(tile => tile.remove());
+
+    document.querySelectorAll(SELECTORS.COMPARE_BIN).forEach(bin => {
+        if (bin.style.display === 'none') {
+            bin.style.display = '';
+        }
+    });
+}
+
+function initControls() {
+    const filtersPanel = document.querySelector('#inventory-cmp-filters');
+    if (!filtersPanel) return;
+
+    if (!document.querySelector('#toggle-compact-script')) {
+        const btn = document.createElement('button');
+        btn.id = 'toggle-compact-script';
+        btn.textContent = scriptEnabled ? 'Disable Compact View' : 'Enable Compact View';
+        btn.style.margin = '10px 0';
+        btn.style.padding = '5px 10px';
+        btn.style.width = '100%';
+
+        btn.className = `btn btn-sm btn-${scriptEnabled ? 'danger' : 'success'}`;
+
+        filtersPanel.appendChild(btn);
+        toggleButton = btn;
+
+        btn.addEventListener('click', () => {
+            scriptEnabled = !scriptEnabled;
+            toggleButton.textContent = scriptEnabled ? 'Disable Compact View' : 'Enable Compact View';
+            btn.className = `btn btn-sm btn-${scriptEnabled ? 'danger' : 'success'}`;
+            if (scriptEnabled) {
+                clearOtherScriptInputs();
+                processExistingBins();
+            } else {
+                revertCompactView();
+            }
+        });
+    }
+
+    function clearOtherScriptInputs() {
+        const inputs = filtersPanel.querySelectorAll('input, select, textarea');
+        inputs.forEach(input => {
+            if (input.tagName === 'SELECT') input.selectedIndex = 0;
+            else if (input.type === 'checkbox' || input.type === 'radio') input.checked = false;
+            else input.value = '';
+        });
+    }
+
+    const handleInputChange = () => {
+        if (scriptEnabled) {
+            scriptEnabled = false;
+            if (toggleButton) toggleButton.textContent = 'Enable Compact View';
+            toggleButton.className = `btn btn-sm btn-${scriptEnabled ? 'danger' : 'success'}`;
+            revertCompactView();
+        }
+    };
+
+    filtersPanel.removeEventListener('input', handleInputChange);
+    filtersPanel.removeEventListener('change', handleInputChange);
+    filtersPanel.addEventListener('input', handleInputChange);
+    filtersPanel.addEventListener('change', handleInputChange);
+}
 const app = () => {
     const stopObserving = observeModal(
-        (modal) => {
+        async (modal) => {
             console.log('Modal is open', modal);
+            initControls();
             processExistingBins();
 
         },
-        (modal) => {
+        async (modal) => {
             console.log('Content changed', modal);
+            initControls();
             processExistingBins();
 
         },
@@ -309,6 +398,39 @@ GM_addStyle(`
         font-weight: bold;
     }
 
+           .additional-tags {
+            position: absolute;
+            bottom: 0px;
+            left: 4px;
+            color: #FFFFFF;
+            cursor: default;
+            font-weight: bold;
+
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            z-index: 5;
+        }
+
+        .additional-tags i {
+            background-color: lightgreen;
+            padding: 3px 3px;
+            border-radius: 4px;
+            font-size: 10px;
+            transform: translate(5px, -10px);
+            z-index: 6
+        }
+
+        .additional-tags i:first-child {
+            background-color: cornflowerblue;
+
+            transform: translate(0, 10px);
+            z-index: 7;
+        }
+
+    .additional-tags.double {
+
+    }
 
 `)
 
